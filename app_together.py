@@ -7,7 +7,7 @@ from PIL import Image
 from fpdf import FPDF
 from together import Together
 
-# === 🗝️ Setup Together.ai API key ===
+# === 🔐 Setup Together.ai API key ===
 os.environ["TOGETHER_API_KEY"] = "10c1c7c6fabe12373eee8e5ef785d62396cb7e35c0500e6eab8097f3c5fd2187"
 client = Together()
 
@@ -18,7 +18,8 @@ def encode_image(image_bytes):
 # === 🧠 Extract text using LLaMA OCR ===
 def extract_text_llama(image_bytes):
     base64_img = encode_image(image_bytes)
-    prompt = "Detect the text present in the image and no extra information. Only plain string."
+    prompt = "Extract the exact text from the image without adding any explanation or description. Return only the raw text string."
+
     messages = [
         {
             "role": "user",
@@ -28,6 +29,7 @@ def extract_text_llama(image_bytes):
             ]
         }
     ]
+
     try:
         stream = client.chat.completions.create(
             model="meta-llama/Llama-Vision-Free",
@@ -50,7 +52,7 @@ class UnicodePDF(FPDF):
         super().__init__()
         font_path = "fonts/DejaVuSans.ttf"
         if not os.path.exists(font_path):
-            st.error(f"⚠️ Font not found: {font_path}")
+            st.error("⚠️ Font not found: fonts/DejaVuSans.ttf")
             st.stop()
         self.add_font("DejaVu", "", font_path, uni=True)
         self.set_font("DejaVu", "", 12)
@@ -71,8 +73,7 @@ def compute_accuracy(predicted, ground_truth):
 def get_mismatched_words(predicted, ground_truth):
     pred_set = set(clean_and_split(predicted))
     gt_words = clean_and_split(ground_truth)
-    mismatches = [word for word in gt_words if word not in pred_set]
-    return mismatches
+    return [word for word in gt_words if word not in pred_set]
 
 # === 🚀 Streamlit App ===
 st.set_page_config(page_title="📝 LLaMA OCR to PDF", layout="centered")
@@ -84,6 +85,10 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
+# Session state to cache OCR
+if "ocr_results_llama" not in st.session_state:
+    st.session_state.ocr_results_llama = {}
+
 if uploaded_files:
     for idx, uploaded_file in enumerate(uploaded_files):
         st.divider()
@@ -94,19 +99,19 @@ if uploaded_files:
             st.error("❌ Image too large. Must be under 4MB.")
             continue
 
-        st.image(uploaded_file, use_column_width=True)
+        st.image(image_bytes, use_column_width=True)
 
-        with st.spinner("🧠 Extracting text using LLaMA OCR..."):
-            extracted_text = extract_text_llama(image_bytes)
+        # Use cached LLaMA OCR if available
+        if uploaded_file.name not in st.session_state.ocr_results_llama:
+            with st.spinner("🧠 Extracting text using LLaMA OCR..."):
+                extracted_text = extract_text_llama(image_bytes)
+                st.session_state.ocr_results_llama[uploaded_file.name] = extracted_text
 
-        if extracted_text.startswith("❌"):
-            st.error(extracted_text)
-            continue
-
+        extracted_text = st.session_state.ocr_results_llama[uploaded_file.name]
         st.success("✅ Text Extracted")
         st.text_area("Extracted Text", value=extracted_text, height=200, key=f"ocr_text_{idx}")
 
-        # === 🧾 Ground truth input and accuracy check ===
+        # === 🧾 Ground Truth Accuracy Section ===
         st.subheader("🔎 Check OCR Accuracy (Optional)")
         ground_truth = st.text_area("✍️ Enter ground truth text:", height=200, key=f"gt_input_{idx}")
 
@@ -117,28 +122,27 @@ if uploaded_files:
 
                 st.info(f"📊 Word-Level Accuracy: **{accuracy}%** ({correct}/{total} correct)")
                 if mismatches:
-                    st.warning("❌ Words not matched in OCR output:")
+                    st.warning("❌ Mismatched words:")
                     st.code(", ".join(mismatches))
             else:
-                st.warning("⚠️ Please enter ground truth before checking accuracy.")
+                st.warning("⚠️ Please enter ground truth first.")
 
-        # === 📥 Download PDF Button ===
-        if st.button("📥 Download as PDF", key=f"pdf_btn_{idx}"):
-            pdf = UnicodePDF()
-            pdf.add_page()
-            pdf.set_font("DejaVu", size=14)
-            pdf.cell(0, 10, uploaded_file.name, ln=True)
-            pdf.set_font("DejaVu", size=12)
-            pdf.multi_cell(0, 10, extracted_text)
+        # === 📥 Direct Download Button (no reload) ===
+        pdf = UnicodePDF()
+        pdf.add_page()
+        pdf.set_font("DejaVu", size=14)
+        pdf.cell(0, 10, uploaded_file.name, ln=True)
+        pdf.set_font("DejaVu", size=12)
+        pdf.multi_cell(0, 10, extracted_text)
 
-            pdf_buffer = io.BytesIO()
-            pdf.output(pdf_buffer)
-            pdf_buffer.seek(0)
+        pdf_buffer = io.BytesIO()
+        pdf.output(pdf_buffer)
+        pdf_buffer.seek(0)
 
-            st.download_button(
-                label="📎 Click to Save PDF",
-                data=pdf_buffer,
-                file_name=f"{uploaded_file.name}_llama.pdf",
-                mime="application/pdf",
-                key=f"dl_btn_{idx}"
-            )
+        st.download_button(
+            label="📥 Download as PDF",
+            data=pdf_buffer,
+            file_name=f"{uploaded_file.name}_llama.pdf",
+            mime="application/pdf",
+            key=f"dl_btn_{idx}"
+        )
