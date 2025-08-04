@@ -63,10 +63,8 @@ def clean_and_split(text):
 def compute_accuracy(predicted, ground_truth):
     pred_words = set(clean_and_split(predicted))
     gt_words = set(clean_and_split(ground_truth))
-
     total = len(gt_words)
     correct = len(pred_words.intersection(gt_words))
-
     accuracy = round((correct / total) * 100, 2) if total else 0.0
     return accuracy, correct, total
 
@@ -78,7 +76,7 @@ def get_mismatched_words(predicted, ground_truth):
 
 # === 🚀 Streamlit App ===
 st.set_page_config(page_title="📝 LLaMA OCR to PDF", layout="centered")
-st.title("📝 Convert Handwritten Images to PDF using LLaMA OCR (Together.ai Free API)")
+st.title("📝 Convert Handwritten Text to Digital Text & PDF")
 
 uploaded_files = st.file_uploader(
     "Upload handwritten/printed image(s) (JPEG/PNG, <4MB each):",
@@ -87,9 +85,9 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    for uploaded_file in uploaded_files:
+    for idx, uploaded_file in enumerate(uploaded_files):
         st.divider()
-        st.subheader(f"📄 {uploaded_file.name}")
+        st.subheader(f"📄 File {idx+1}: {uploaded_file.name}")
 
         image_bytes = uploaded_file.read()
         if len(image_bytes) > 4 * 1024 * 1024:
@@ -105,38 +103,42 @@ if uploaded_files:
             st.error(extracted_text)
             continue
 
-        st.success("✅ Text Extracted:")
-        st.text_area("Extracted Text", value=extracted_text, height=200)
+        st.success("✅ Text Extracted")
+        st.text_area("Extracted Text", value=extracted_text, height=200, key=f"ocr_text_{idx}")
 
-        # === 🧾 Ground truth and accuracy check ===
-        st.subheader("🔎 Optional: Enter Ground Truth to Evaluate Accuracy")
-        ground_truth = st.text_area("Paste the expected/correct text here:", height=200)
+        # === 🧾 Ground truth input and accuracy check ===
+        st.subheader("🔎 Check OCR Accuracy (Optional)")
+        ground_truth = st.text_area("✍️ Enter ground truth text:", height=200, key=f"gt_input_{idx}")
 
-        if ground_truth:
-            accuracy, correct, total = compute_accuracy(extracted_text, ground_truth)
-            mismatches = get_mismatched_words(extracted_text, ground_truth)
+        if st.button("✅ Check Accuracy", key=f"check_acc_{idx}"):
+            if ground_truth:
+                accuracy, correct, total = compute_accuracy(extracted_text, ground_truth)
+                mismatches = get_mismatched_words(extracted_text, ground_truth)
 
-            st.info(f"📊 Word-Level Accuracy: **{accuracy}%** ({correct}/{total} correct)")
+                st.info(f"📊 Word-Level Accuracy: **{accuracy}%** ({correct}/{total} correct)")
+                if mismatches:
+                    st.warning("❌ Words not matched in OCR output:")
+                    st.code(", ".join(mismatches))
+            else:
+                st.warning("⚠️ Please enter ground truth before checking accuracy.")
 
-            if mismatches:
-                st.warning("❌ Words not matched in OCR output:")
-                st.code(", ".join(mismatches), language="text")
+        # === 📥 Download PDF Button ===
+        if st.button("📥 Download as PDF", key=f"pdf_btn_{idx}"):
+            pdf = UnicodePDF()
+            pdf.add_page()
+            pdf.set_font("DejaVu", size=14)
+            pdf.cell(0, 10, uploaded_file.name, ln=True)
+            pdf.set_font("DejaVu", size=12)
+            pdf.multi_cell(0, 10, extracted_text)
 
-        # === 📥 Generate PDF ===
-        pdf = UnicodePDF()
-        pdf.add_page()
-        pdf.set_font("DejaVu", size=14)
-        pdf.cell(0, 10, uploaded_file.name, ln=True)
-        pdf.set_font("DejaVu", size=12)
-        pdf.multi_cell(0, 10, extracted_text)
+            pdf_buffer = io.BytesIO()
+            pdf.output(pdf_buffer)
+            pdf_buffer.seek(0)
 
-        pdf_buffer = io.BytesIO()
-        pdf.output(pdf_buffer)
-        pdf_buffer.seek(0)
-
-        st.download_button(
-            label=f"📥 Download PDF for {uploaded_file.name}",
-            data=pdf_buffer,
-            file_name=f"{uploaded_file.name}_llama.pdf",
-            mime="application/pdf"
-        )
+            st.download_button(
+                label="📎 Click to Save PDF",
+                data=pdf_buffer,
+                file_name=f"{uploaded_file.name}_llama.pdf",
+                mime="application/pdf",
+                key=f"dl_btn_{idx}"
+            )
