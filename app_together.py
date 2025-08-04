@@ -50,7 +50,7 @@ def extract_text_llama(image_bytes):
 class UnicodePDF(FPDF):
     def __init__(self):
         super().__init__()
-        font_path = "fonts/DejaVuSans.ttf"
+        font_path = "DejaVuSans.ttf"
         if not os.path.exists(font_path):
             st.error("⚠️ Font not found: fonts/DejaVuSans.ttf")
             st.stop()
