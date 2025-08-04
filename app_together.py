@@ -85,7 +85,7 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-# Session state to cache OCR
+# Cache OCR results across reruns
 if "ocr_results_llama" not in st.session_state:
     st.session_state.ocr_results_llama = {}
 
@@ -101,7 +101,7 @@ if uploaded_files:
 
         st.image(image_bytes, use_column_width=True)
 
-        # Use cached LLaMA OCR if available
+        # OCR if not already done
         if uploaded_file.name not in st.session_state.ocr_results_llama:
             with st.spinner("🧠 Extracting text using LLaMA OCR..."):
                 extracted_text = extract_text_llama(image_bytes)
@@ -127,7 +127,7 @@ if uploaded_files:
             else:
                 st.warning("⚠️ Please enter ground truth first.")
 
-        # === 📥 Direct Download Button (no reload) ===
+        # === 📥 Download PDF Button ===
         pdf = UnicodePDF()
         pdf.add_page()
         pdf.set_font("DejaVu", size=14)
@@ -135,14 +135,14 @@ if uploaded_files:
         pdf.set_font("DejaVu", size=12)
         pdf.multi_cell(0, 10, extracted_text)
 
-        pdf_buffer = io.BytesIO()
-        pdf.output(pdf_buffer)
-        pdf_buffer.seek(0)
+        # Convert PDF output to valid bytes
+        pdf_content = pdf.output(dest="S")
+        pdf_bytes = pdf_content.encode("latin1") if isinstance(pdf_content, str) else bytes(pdf_content)
 
         st.download_button(
             label="📥 Download as PDF",
-            data=pdf_buffer,
-            file_name=f"{uploaded_file.name}_llama.pdf",
+            data=pdf_bytes,
+            file_name=f"{os.path.splitext(uploaded_file.name)[0]}_llama.pdf",
             mime="application/pdf",
             key=f"dl_btn_{idx}"
         )
